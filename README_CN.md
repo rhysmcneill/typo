@@ -55,6 +55,15 @@ curl -fsSL https://raw.githubusercontent.com/yuluo-yx/typo/main/tools/scripts/in
 
 说明：安装脚本当前支持 macOS 和 Linux。
 
+### Shell 集成
+
+| Shell 终端 | 支持状态  |
+|-----------|----------|
+| zsh       | ✅ 已支持 |
+| bash      | ✅ 已支持 |
+| fish      | 🚧 计划中 |
+| Powershell| 🚧 计划中 | 
+
 ### 运行
 
 ```bash
@@ -104,6 +113,8 @@ typo config gen --force                  # 强制覆盖已有配置文件
 typo rules list                    # 列出所有规则
 typo rules add "gst" "git status"  # 效果与 `learn` 相同，更偏规则管理操作
 typo rules remove "gst"            # 删除规则
+typo rules disable git             # 禁用内置 git 规则作用域
+typo rules enable docker           # 重新启用内置 docker 规则作用域
 ```
 
 ### `typo history` - 查看修正历史

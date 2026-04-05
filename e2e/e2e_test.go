@@ -80,19 +80,41 @@ func newE2EEnv(t *testing.T) *e2eEnv {
 		"chmod", "chown", "ssh", "scp", "wget", "rsync", "zip", "unzip", "su", "gzip", "ps", "kill", "ln", "du", "df", "date", "open",
 		"clear", "man", "whoami", "uname", "basename", "dirname", "file", "stat",
 	)
-	env.seedSubcommands(t, map[string][]string{
-		"git":       {"status", "remote", "commit", "checkout", "branch", "pull", "push"},
-		"docker":    {"build", "ps", "images", "run", "logs", "compose"},
-		"npm":       {"install", "list", "run", "test", "ci"},
-		"yarn":      {"add", "install", "init", "test", "run"},
-		"kubectl":   {"apply", "describe", "get", "logs"},
-		"cargo":     {"build", "check", "run", "test", "fmt"},
-		"go":        {"build", "test", "fmt", "mod", "env"},
-		"pip":       {"install", "uninstall", "list", "show", "freeze"},
-		"pip3":      {"install", "uninstall", "list", "show", "freeze"},
-		"brew":      {"install", "update", "upgrade", "list", "search"},
-		"terraform": {"init", "plan", "apply", "destroy", "validate"},
-		"helm":      {"install", "upgrade", "template", "repo", "lint", "list"},
+	env.seedSubcommandCaches(t, []commands.SubcommandCache{
+		{Tool: "git", Subcommands: []string{"status", "remote", "commit", "checkout", "branch", "pull", "push"}},
+		{Tool: "docker", Subcommands: []string{"build", "ps", "images", "run", "logs", "compose"}},
+		{Tool: "npm", Subcommands: []string{"install", "list", "run", "test", "ci"}},
+		{Tool: "yarn", Subcommands: []string{"add", "install", "init", "test", "run"}},
+		{Tool: "kubectl", Subcommands: []string{"apply", "describe", "get", "logs"}},
+		{Tool: "cargo", Subcommands: []string{"build", "check", "run", "test", "fmt"}},
+		{Tool: "go", Subcommands: []string{"build", "test", "fmt", "mod", "env"}},
+		{Tool: "pip", Subcommands: []string{"install", "uninstall", "list", "show", "freeze"}},
+		{Tool: "pip3", Subcommands: []string{"install", "uninstall", "list", "show", "freeze"}},
+		{Tool: "brew", Subcommands: []string{"install", "update", "upgrade", "list", "search"}},
+		{Tool: "terraform", Subcommands: []string{"init", "plan", "apply", "destroy", "validate"}},
+		{Tool: "helm", Subcommands: []string{"install", "upgrade", "template", "repo", "lint", "list"}},
+		{
+			Tool:        "aws",
+			Subcommands: []string{"s3", "ec2", "configure"},
+			Children: map[string][]string{
+				"s3": {"cp", "ls", "mb", "mv", "rm", "sync"},
+			},
+		},
+		{
+			Tool:        "gcloud",
+			Subcommands: []string{"auth", "compute", "config"},
+			Children: map[string][]string{
+				"compute":           {"instances"},
+				"compute instances": {"describe", "list"},
+			},
+		},
+		{
+			Tool:        "az",
+			Subcommands: []string{"account", "group", "login"},
+			Children: map[string][]string{
+				"group": {"create", "delete", "list", "show"},
+			},
+		},
 	})
 
 	return env
@@ -178,34 +200,6 @@ func (e *e2eEnv) seedCommandStubs(t *testing.T, names ...string) {
 	}
 }
 
-func (e *e2eEnv) seedSubcommands(t *testing.T, tools map[string][]string) {
-	t.Helper()
-
-	if err := os.MkdirAll(e.configDir(), 0755); err != nil {
-		t.Fatalf("failed to create config directory: %v", err)
-	}
-
-	caches := make([]commands.SubcommandCache, 0, len(tools))
-	now := time.Now()
-	for tool, subcommands := range tools {
-		caches = append(caches, commands.SubcommandCache{
-			Tool:        tool,
-			Subcommands: subcommands,
-			UpdatedAt:   now,
-		})
-	}
-
-	data, err := json.MarshalIndent(caches, "", "  ")
-	if err != nil {
-		t.Fatalf("failed to marshal subcommand cache: %v", err)
-	}
-
-	cacheFile := filepath.Join(e.configDir(), "subcommands.json")
-	if err := os.WriteFile(cacheFile, data, 0600); err != nil {
-		t.Fatalf("failed to write subcommand cache: %v", err)
-	}
-}
-
 func (e *e2eEnv) writeTempFile(t *testing.T, name, content string) string {
 	t.Helper()
 
@@ -238,6 +232,33 @@ func (e *e2eEnv) commandEnv(extra ...string) []string {
 	filtered = append(filtered, extra...)
 
 	return filtered
+}
+
+func (e *e2eEnv) seedSubcommandCaches(t *testing.T, caches []commands.SubcommandCache) {
+	t.Helper()
+
+	if err := os.MkdirAll(e.configDir(), 0755); err != nil {
+		t.Fatalf("failed to create config directory: %v", err)
+	}
+
+	now := time.Now()
+	normalized := make([]commands.SubcommandCache, 0, len(caches))
+	for _, cache := range caches {
+		if cache.UpdatedAt.IsZero() {
+			cache.UpdatedAt = now
+		}
+		normalized = append(normalized, cache)
+	}
+
+	data, err := json.MarshalIndent(normalized, "", "  ")
+	if err != nil {
+		t.Fatalf("failed to marshal subcommand cache: %v", err)
+	}
+
+	cacheFile := filepath.Join(e.configDir(), "subcommands.json")
+	if err := os.WriteFile(cacheFile, data, 0600); err != nil {
+		t.Fatalf("failed to write subcommand cache: %v", err)
+	}
 }
 
 func (e *e2eEnv) run(t *testing.T, args ...string) e2eResult {
@@ -533,6 +554,45 @@ func TestE2ERulesWorkflow(t *testing.T) {
 	fixAfterRemove := env.run(t, "fix", customTypo+" status")
 	if fixAfterRemove.stdout == "mytool status\n" {
 		t.Fatalf("removed rule still wins after deletion: stdout=%q stderr=%q code=%d", fixAfterRemove.stdout, fixAfterRemove.stderr, fixAfterRemove.code)
+	}
+}
+
+func TestE2ERuleScopeEnableDisableWorkflow(t *testing.T) {
+	env := newE2EEnv(t)
+
+	disableGit := env.run(t, "rules", "disable", "git")
+	if disableGit.code != 0 || !strings.Contains(disableGit.stdout, "Disabled rule scope: git") {
+		t.Fatalf("rules disable git failed: stdout=%q stderr=%q code=%d", disableGit.stdout, disableGit.stderr, disableGit.code)
+	}
+
+	rulesListDisabled := env.run(t, "rules", "list")
+	if rulesListDisabled.code != 0 || !strings.Contains(rulesListDisabled.stdout, "gut -> git [git] (disabled)") {
+		t.Fatalf("rules list should show disabled git rules: stdout=%q stderr=%q code=%d", rulesListDisabled.stdout, rulesListDisabled.stderr, rulesListDisabled.code)
+	}
+
+	fixWhileDisabled := env.run(t, "fix", "--no-history", "gut status")
+	if fixWhileDisabled.code == 0 && fixWhileDisabled.stdout == "git status\n" {
+		t.Fatalf("git scope disable should block git correction: stdout=%q stderr=%q code=%d", fixWhileDisabled.stdout, fixWhileDisabled.stderr, fixWhileDisabled.code)
+	}
+
+	checkPersistedDisable := env.run(t, "config", "get", "rules.git.enabled")
+	if checkPersistedDisable.code != 0 || strings.TrimSpace(checkPersistedDisable.stdout) != "false" {
+		t.Fatalf("rules.git.enabled should persist as false: stdout=%q stderr=%q code=%d", checkPersistedDisable.stdout, checkPersistedDisable.stderr, checkPersistedDisable.code)
+	}
+
+	enableGit := env.run(t, "rules", "enable", "git")
+	if enableGit.code != 0 || !strings.Contains(enableGit.stdout, "Enabled rule scope: git") {
+		t.Fatalf("rules enable git failed: stdout=%q stderr=%q code=%d", enableGit.stdout, enableGit.stderr, enableGit.code)
+	}
+
+	checkPersistedEnable := env.run(t, "config", "get", "rules.git.enabled")
+	if checkPersistedEnable.code != 0 || strings.TrimSpace(checkPersistedEnable.stdout) != "true" {
+		t.Fatalf("rules.git.enabled should persist as true: stdout=%q stderr=%q code=%d", checkPersistedEnable.stdout, checkPersistedEnable.stderr, checkPersistedEnable.code)
+	}
+
+	fixAfterEnable := env.run(t, "fix", "gut status")
+	if fixAfterEnable.code != 0 || fixAfterEnable.stdout != "git status\n" {
+		t.Fatalf("git correction should recover after enable: stdout=%q stderr=%q code=%d", fixAfterEnable.stdout, fixAfterEnable.stderr, fixAfterEnable.code)
 	}
 }
 
